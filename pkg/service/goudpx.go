@@ -41,6 +41,7 @@ func udpMulticastWriter(addr string, udpChan chan []byte) {
 	for {
 		data := make([]byte, 4096)
 		n, _, err := socket.ReadFromUDP(data)
+		fmt.Println("udp size:", n)
 		if err != nil {
 			fmt.Print("read udp stream err:=", err.Error())
 		} else {
@@ -88,6 +89,7 @@ func NewService() *Service {
 			if err != nil {
 				return false
 			}
+			c.Writer.Flush()
 			return true
 		})
 
