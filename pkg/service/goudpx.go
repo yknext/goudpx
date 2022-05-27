@@ -5,8 +5,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"io"
 	"net"
-	"strconv"
-	"strings"
 )
 
 type Service struct {
@@ -34,23 +32,19 @@ func udpMulticastWriter(addr string, udpChan chan []byte) {
 
 	defer close(udpChan)
 
-	a := strings.Split(addr, ":")
-	port, err := strconv.Atoi(a[1])
-	if err != nil || port < 1 || port > 65535 {
-		fmt.Print("port err:", port)
+	mcaddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		fmt.Println("addr err:=", addr)
 	}
 
-	socket, err := net.ListenUDP("udp4", &net.UDPAddr{
-		IP:   net.ParseIP(a[0]),
-		Port: port,
-	})
+	socket, err := net.ListenMulticastUDP("udp4", nil, mcaddr)
 	for {
 		data := make([]byte, 4096)
-		_, _, err := socket.ReadFromUDP(data)
+		n, _, err := socket.ReadFromUDP(data)
 		if err != nil {
 			fmt.Print("read udp stream err:=", err.Error())
 		} else {
-			udpChan <- data
+			udpChan <- data[:n]
 		}
 	}
 }
