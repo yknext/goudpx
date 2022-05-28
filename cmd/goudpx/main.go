@@ -7,7 +7,7 @@ import (
 
 func main() {
 
-	server := tcp_server.New("localhost:9999")
+	server := tcp_server.New("0.0.0.0:6666")
 
 	server.OnNewClient(func(c *tcp_server.Client) {
 
