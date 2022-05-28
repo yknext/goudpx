@@ -3,7 +3,6 @@ package service
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/pion/rtp"
 	"io"
 	"log"
 	"net"
@@ -36,48 +35,44 @@ type Response struct {
 	Headers Header
 }
 
-func readUdpMulticastH264(UDP4MulticastAddress string, udpChan chan []byte) {
+func ReadUdpMulticastH264(UDP4MulticastAddress string, udpChan chan []byte) {
 
-	log.Println("Waiting for a RTP/H264 stream on UDP port 9000 - you can send one with GStreamer:\n" +
-		"gst-launch-1.0 videotestsrc ! video/x-raw,width=1920,height=1080" +
-		" ! x264enc speed-preset=veryfast tune=zerolatency bitrate=600000" +
-		" ! rtph264pay ! udpsink host=127.0.0.1 port=9000")
+	log.Println("Waiting for a RTP/H264 stream on UDP port")
 
 	mcaddr, err := net.ResolveUDPAddr("udp", UDP4MulticastAddress)
 	if err != nil {
 		fmt.Println("addr err:=", UDP4MulticastAddress)
 	}
 
-	socket, err := net.ListenMulticastUDP("udp4", nil, mcaddr)
-
-	// receive
-	data := make(chan []byte, 4096)
+	socket, err := net.ListenMulticastUDP("udp", nil, mcaddr)
 
 	go func() {
 		for {
-			udpData := make([]byte, 4096)
+			udpData := make([]byte, 1452)
 			n, _, err := socket.ReadFromUDP(udpData)
 			if err != nil {
 				fmt.Print("read udp stream err:=", err.Error())
 			} else {
-				data <- udpData[:n]
+				if n > 12 {
+					udpChan <- udpData[12:n]
+				}
 			}
 		}
 	}()
 
-	go func() {
-		var pkt rtp.Packet
-		for {
-			// parse RTP packet
-			err := pkt.Unmarshal(<-data)
-			if err != nil {
-				fmt.Println("err:=", err.Error())
-			} else {
-				// send to http stream
-				udpChan <- pkt.Payload
-			}
-		}
-	}()
+	//go func() {
+	//	var pkt rtp.Packet
+	//	for {
+	//		// parse RTP packet
+	//		err := pkt.Unmarshal(<-data)
+	//		if err != nil {
+	//			fmt.Println("err:=", err.Error())
+	//		} else {
+	//			// send to http stream
+	//			udpChan <- pkt.Payload
+	//		}
+	//	}
+	//}()
 
 }
 
@@ -108,8 +103,8 @@ func NewService() *Service {
 			return
 		}
 
-		udpChan := make(chan []byte)
-		go readUdpMulticastH264(req.Addr, udpChan)
+		udpChan := make(chan []byte, 4096)
+		go ReadUdpMulticastH264(req.Addr, udpChan)
 
 		c.Stream(func(w io.Writer) bool {
 			output, ok := <-udpChan
@@ -120,7 +115,6 @@ func NewService() *Service {
 			if err != nil {
 				return false
 			}
-			c.Writer.Flush()
 			return true
 		})
 
