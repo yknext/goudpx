@@ -48,8 +48,8 @@ func udpMulticastWriter(addr string, udpChan chan []byte) {
 		} else {
 			hexf := hex.Dump(data)
 			hexs := hex.Dump(data[:n])
-			fmt.Println("hexf:" + hexf)
-			fmt.Println("hexs:" + hexs)
+			fmt.Println("hexf: % x" + hexf)
+			fmt.Println("hexs: % x" + hexs)
 			udpChan <- data[:n]
 		}
 	}
