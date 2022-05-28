@@ -1,11 +1,18 @@
 package service
 
 import (
-	"encoding/hex"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/pion/rtp"
 	"io"
+	"log"
 	"net"
+)
+
+const (
+	maxDatagramSize = 8192
+	// 1500 (UDP MTU) - 20 (IP header) - 8 (UDP header)
+	maxPacketSize = 1472
 )
 
 type Service struct {
@@ -29,30 +36,85 @@ type Response struct {
 	Headers Header
 }
 
-func udpMulticastWriter(addr string, udpChan chan []byte) {
-
-	defer close(udpChan)
-
-	mcaddr, err := net.ResolveUDPAddr("udp", addr)
+// NewBroadcaster creates a new UDP multicast connection on which to broadcast
+func NewBroadcaster(address string) (*net.UDPConn, error) {
+	addr, err := net.ResolveUDPAddr("udp", address)
 	if err != nil {
-		fmt.Println("addr err:=", addr)
+		return nil, err
 	}
 
-	socket, err := net.ListenMulticastUDP("udp4", nil, mcaddr)
-	for {
-		data := make([]byte, 4096)
-		n, _, err := socket.ReadFromUDP(data)
-		fmt.Println("udp size:", n)
-		if err != nil {
-			fmt.Print("read udp stream err:=", err.Error())
-		} else {
-			hexf := hex.Dump(data)
-			hexs := hex.Dump(data[:n])
-			fmt.Println("hexf: % x" + hexf)
-			fmt.Println("hexs: % x" + hexs)
-			udpChan <- data[:n]
-		}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return nil, err
 	}
+
+	return conn, nil
+}
+
+// Listen binds to the UDP address and port given and writes packets received
+// from that address to a buffer which is passed to a hander
+func Listen(address string, handler func(*net.UDPAddr, int, []byte)) {
+	// Parse the string address
+	addr, err := net.ResolveUDPAddr("udp", address)
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Open up a connection
+	conn, err := net.ListenMulticastUDP("udp", nil, addr)
+	if err != nil {
+		log.Println(err)
+	}
+
+	conn.SetReadBuffer(maxDatagramSize)
+
+	// Loop forever reading from the socket
+	for {
+		buffer := make([]byte, maxDatagramSize)
+		numBytes, src, err := conn.ReadFromUDP(buffer)
+		if err != nil {
+			log.Println("ReadFromUDP failed:", err)
+		}
+
+		handler(src, numBytes, buffer)
+	}
+}
+
+func readUdpMulticasH264(UDP4MulticastAddress string, udpChan chan []byte) {
+
+	log.Println("Waiting for a RTP/H264 stream on UDP port 9000 - you can send one with GStreamer:\n" +
+		"gst-launch-1.0 videotestsrc ! video/x-raw,width=1920,height=1080" +
+		" ! x264enc speed-preset=veryfast tune=zerolatency bitrate=600000" +
+		" ! rtph264pay ! udpsink host=127.0.0.1 port=9000")
+
+	// receive
+	data := make(chan []byte)
+
+	Listen(UDP4MulticastAddress, func(addr *net.UDPAddr, n int, buf []byte) {
+		log.Println(addr, n, string(buf[:n]))
+		data <- buf[:n]
+	})
+
+	var pkt rtp.Packet
+	for {
+		// parse RTP packet
+		err := pkt.Unmarshal(<-data)
+		if err != nil {
+			panic(err)
+		}
+
+		// read from packet
+		byts := make([]byte, maxPacketSize)
+		n, err := pkt.MarshalTo(byts)
+		if err != nil {
+			panic(err)
+		}
+		byts = byts[:n]
+
+		// send to http stream
+		udpChan <- byts
+	}
+
 }
 
 func NewService() *Service {
@@ -83,7 +145,7 @@ func NewService() *Service {
 		}
 
 		udpChan := make(chan []byte)
-		go udpMulticastWriter(req.Addr, udpChan)
+		go readUdpMulticasH264(req.Addr, udpChan)
 
 		c.Stream(func(w io.Writer) bool {
 			output, ok := <-udpChan
