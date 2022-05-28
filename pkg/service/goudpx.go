@@ -36,7 +36,7 @@ type Response struct {
 	Headers Header
 }
 
-func readUdpMulticasH264(UDP4MulticastAddress string, udpChan chan []byte) {
+func readUdpMulticastH264(UDP4MulticastAddress string, udpChan chan []byte) {
 
 	log.Println("Waiting for a RTP/H264 stream on UDP port 9000 - you can send one with GStreamer:\n" +
 		"gst-launch-1.0 videotestsrc ! video/x-raw,width=1920,height=1080" +
@@ -51,7 +51,7 @@ func readUdpMulticasH264(UDP4MulticastAddress string, udpChan chan []byte) {
 	socket, err := net.ListenMulticastUDP("udp4", nil, mcaddr)
 
 	// receive
-	data := make(chan []byte)
+	data := make(chan []byte, 4096)
 
 	go func() {
 		for {
@@ -73,14 +73,8 @@ func readUdpMulticasH264(UDP4MulticastAddress string, udpChan chan []byte) {
 			if err != nil {
 				fmt.Println("err:=", err.Error())
 			} else {
-				// read from packet
-				byts := make([]byte, maxPacketSize)
-				n, err := pkt.MarshalTo(byts)
-				if err != nil {
-					fmt.Println("err packet:", err.Error())
-				}
 				// send to http stream
-				udpChan <- byts[:n]
+				udpChan <- pkt.Payload
 			}
 		}
 	}()
@@ -115,7 +109,7 @@ func NewService() *Service {
 		}
 
 		udpChan := make(chan []byte)
-		go readUdpMulticasH264(req.Addr, udpChan)
+		go readUdpMulticastH264(req.Addr, udpChan)
 
 		c.Stream(func(w io.Writer) bool {
 			output, ok := <-udpChan
