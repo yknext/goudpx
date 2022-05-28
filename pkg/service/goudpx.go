@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
@@ -45,6 +46,10 @@ func udpMulticastWriter(addr string, udpChan chan []byte) {
 		if err != nil {
 			fmt.Print("read udp stream err:=", err.Error())
 		} else {
+			hexf := hex.Dump(data)
+			hexs := hex.Dump(data[:n])
+			fmt.Println("hexf:" + hexf)
+			fmt.Println("hexs:" + hexs)
 			udpChan <- data[:n]
 		}
 	}
