@@ -3,6 +3,8 @@ package service
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
 	"io"
 	"log"
 	"net"
@@ -46,6 +48,8 @@ func ReadUdpMulticastH264(UDP4MulticastAddress string, udpChan chan []byte) {
 
 	socket, err := net.ListenMulticastUDP("udp", nil, mcaddr)
 
+	data := make(chan []byte, 4096)
+
 	go func() {
 		for {
 			udpData := make([]byte, 1452)
@@ -54,25 +58,50 @@ func ReadUdpMulticastH264(UDP4MulticastAddress string, udpChan chan []byte) {
 				fmt.Print("read udp stream err:=", err.Error())
 			} else {
 				if n > 12 {
-					udpChan <- udpData[12:n]
+					data <- udpData[:n]
 				}
 			}
 		}
 	}()
 
-	//go func() {
-	//	var pkt rtp.Packet
-	//	for {
-	//		// parse RTP packet
-	//		err := pkt.Unmarshal(<-data)
-	//		if err != nil {
-	//			fmt.Println("err:=", err.Error())
-	//		} else {
-	//			// send to http stream
-	//			udpChan <- pkt.Payload
-	//		}
-	//	}
-	//}()
+	go func() {
+		var pkt rtp.Packet
+		for {
+			// parse RTP packet
+			err := pkt.Unmarshal(<-data)
+			if err != nil {
+				fmt.Println("err:=", err.Error())
+			} else {
+				if len(pkt.Header.CSRC) > 0 {
+					fmt.Println("CCRC size:", (len(pkt.Header.CSRC)))
+				}
+
+				// send to http stream
+				fragment_type := int(pkt.Payload[0] & 0x1F)
+				nal_type := int(pkt.Payload[1] & 0x1F)
+				start_bit := int(pkt.Payload[1] & 0x80)
+				end_bit := int(pkt.Payload[1] & 0x40)
+
+				fmt.Println("head:", fragment_type, nal_type, start_bit, end_bit)
+
+				h264pkt := codecs.H264Packet{
+					IsAVC: true,
+				}
+
+				h264, err := h264pkt.Unmarshal(pkt.Payload)
+				if err != nil {
+					fmt.Println("decode h264 err:", err.Error())
+				}
+
+				if len(h264) > 0 {
+					udpChan <- h264
+				} else {
+					fmt.Println("decode len 0")
+				}
+
+			}
+		}
+	}()
 
 }
 
